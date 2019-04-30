@@ -15,6 +15,11 @@ var path = require('path');
 var https = require('https');
 var semver = require('semver');
 var express = require('express');
+var router = require('express').Router()
+var bodyParser = require('body-parser');
+var basicAuth = require('express-basic-auth');
+var serveIndex = require('serve-index');
+const fileUpload = require('express-fileupload');
 var thunkify = require('thunkify');
 var exec = require('child_process').exec;
 
@@ -96,7 +101,8 @@ function* loadUpdates() {
   // iterate through each file in the "updates" dir
   yield dive(config.directory, function(filepath) {
     if (filepath.match(/\.json$/)) {
-      console.log('Reading `' + filepath + '`...');
+      const splited = filepath.split('/');
+      console.log('Reading `' + splited[splited.length - 1] + '`...');
       var data;
       var stats;
       try {
@@ -169,6 +175,7 @@ function matchUpdate(info) {
   // TODO: use component/find here...
   updates.forEach(function(update) {
 
+    // console.log();
     // console.log("update.app == info.app", update.app == info.app);
     // console.log("semver.gt(update.version, completeVer(info.appversion))", semver.gt(update.version, completeVer(info.appversion)));
     // console.log("update.channels.indexOf(info.channel) != -1", update.channels.indexOf(info.channel) != -1);
@@ -178,23 +185,37 @@ function matchUpdate(info) {
     // console.log("semver.satisfies(completeVer(info.appversion), update.compatible.appversion)", semver.satisfies(completeVer(info.appversion), update.compatible.appversion));
     // console.log("update.percentage >= parseFloat(info.percentile)", update.percentage >= parseFloat(info.percentile));
     // console.log("update.format == info.format", update.format == info.format);
+    //
+    // console.log("match",
+    //         update.app == info.app
+    //      && semver.gt(update.version, completeVer(info.appversion))
+    //      && update.channels.indexOf(info.channel) != -1
+    //      && update.compatible.architectures.indexOf(info.architecture) != -1
+    //      && update.compatible.os == info.os
+    //      && semver.satisfies(completeVer(info.osversion), update.compatible.osversion)
+    //      && semver.satisfies(completeVer(info.appversion), update.compatible.appversion)
+    //      && update.percentage >= parseFloat(info.percentile)
+    //      && update.format == info.format
+    // );
 
-    if (update.app == info.app &&
-        semver.gt(update.version, completeVer(info.appversion)) &&
-        update.channels.indexOf(info.channel) != -1 &&
-        update.compatible.architectures.indexOf(info.architecture) != -1 &&
-        update.compatible.os == info.os &&
-        semver.satisfies(completeVer(info.osversion), update.compatible.osversion) &&
-        semver.satisfies(completeVer(info.appversion), update.compatible.appversion) &&
-        update.percentage >= parseFloat(info.percentile) &&
-        update.format == info.format) {
-      if (match) {
-        if (semver.gt(update.version, match.version)) {
+    if (
+          update.app == info.app
+       && semver.gt(update.version, completeVer(info.appversion))
+       && update.channels.indexOf(info.channel) != -1
+       && update.compatible.architectures.indexOf(info.architecture) != -1
+       && update.compatible.os == info.os
+       && semver.satisfies(completeVer(info.osversion), update.compatible.osversion)
+       && semver.satisfies(completeVer(info.appversion), update.compatible.appversion)
+       && update.percentage >= parseFloat(info.percentile)
+       && update.format == info.format
+      ) {
+        if (match) {
+          if (semver.gt(update.version, match.version)) {
+            match = update;
+          }
+        } else {
           match = update;
         }
-      } else {
-        match = update;
-      }
     }
   });
   return match;
@@ -203,9 +224,33 @@ function matchUpdate(info) {
 /**
  * Middleware
  */
-app.use(express.bodyParser());
+// parse application/x-www-form-urlencoded
+app.use(bodyParser.urlencoded({ extended: false }));
 
-var auth = express.basicAuth(config.username, config.password);
+// parse application/json
+app.use(bodyParser.json());
+
+app.use(fileUpload({
+  // useTempFiles : true,
+  // tempFileDir : '/tmp/'
+}));
+
+// Basic Auth
+var users = {};
+users[`${config.username}`] = config.password;
+
+function getUnauthorizedResponse(req) {
+    // return req.auth
+    //     ? ('Credentials ' + req.auth.user + ':' + req.auth.password + ' rejected')
+    //     : 'No credentials provided'
+    return 'auth failed'
+}
+
+const auth = basicAuth({
+  users,
+  challenge: true,
+  unauthorizedResponse: getUnauthorizedResponse
+});
 
 /**
  * Normalizes a `req.params` or `req.query` object with the proper default values.
@@ -259,7 +304,7 @@ app.get('/update', function(req, res, next) {
   if (update) {
     res.download(update.path, path.basename(update.path));
   } else {
-    res.send(404, "No updates.");
+    res.status(404).send("No updates");
   }
 });
 
@@ -272,7 +317,7 @@ app.get('/update.json', function(req, res, next) {
   res.setHeader("Connection", "close");
   if (!update) {
     update = {
-      error: 'No updates.'
+      error: 'No updates'
     };
     res.status(404);
   }
@@ -283,16 +328,26 @@ app.get('/update.json', function(req, res, next) {
  * Upload new updates
  */
 app.post('/upload', auth, function(req, res, next) {
-  var tarpath = req.files.update.path;
-  console.log('New update received. Extracting contents...');
-  exec('tar -xf ' + tarpath + ' -C "' + config.directory + '"', {}, function(err, stdout, stderr) {
-    if (err) {
-      console.log('Extraction failed.');
-      return next(err);
-    }
-    console.log('Extraction completed.');
-    res.send(201, 'Created');
-    co(loadUpdates)();
+  if (Object.keys(req.files).length == 0) {
+    return res.status(400).send('No files were uploaded.');
+  }
+
+  let update = req.files.update;
+
+  update.mv(`/dev/shm/${req.files.update.name}`, function(err) {
+    if (err)
+      return res.status(500).send(err);
+
+    console.log('New update received. Extracting contents...');
+    exec('tar -xf ' + `/dev/shm/${req.files.update.name}` + ' -C "' + config.directory + '"', {}, function(err, stdout, stderr) {
+      if (err) {
+        console.log('Extraction failed.');
+        return next(err);
+      }
+      console.log('Extraction completed.');
+      co(loadUpdates)();
+      return res.status(201).send("Created")
+    });
   });
 });
 
@@ -307,15 +362,21 @@ app.post('/reload', auth, function(req, res, next) {
 /**
  * Used for monitoring
  */
-app.get('/', function(req, res, next) {
-  res.send(200);
+app.get('/', function(req, res) {
+  res.send(`
+<h1>Auto Update Server ${process.env.npm_package_version || ""}</h1>
+<h2><a href="/static">Browse</a></h2>
+  `);
 });
 
 /**
  * Static route to get updates
  */
-app.use('/static', express.directory(config.directory, { icons: true }));
-app.use('/static', express.static(config.directory));
+app.use(
+  '/static',
+  express.static(config.directory),
+  serveIndex(config.directory, {'icons': true})
+);
 
 /**
  * Loads the .json update data in a never ending generator loop.
