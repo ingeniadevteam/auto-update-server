@@ -362,12 +362,18 @@ app.post('/reload', auth, function(req, res, next) {
 /**
  * Used for monitoring
  */
-app.get('/', function(req, res) {
-  res.send(`
-<h1>Auto Update Server ${process.env.npm_package_version || ""}</h1>
-<h2><a href="/static">Browse</a></h2>
-  `);
-});
+// app.get('/*', function(req, res) {
+//   res.sendFile(__dirname + '/www');
+// //   res.send(`
+// // <h1>Auto Update Server ${process.env.npm_package_version || ""}</h1>
+// // <h2><a href="/static">Browse</a></h2>
+// //   `);
+// });
+
+app.use(
+  '/',
+  express.static(__dirname + '/www')
+);
 
 /**
  * Static route to get updates
