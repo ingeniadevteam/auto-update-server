@@ -309,6 +309,16 @@ app.get('/update', function(req, res, next) {
 });
 
 /**
+ * Get updates
+ *
+ * @api public
+ */
+app.get('/updates', function(req, res, next) {
+  res.setHeader("Connection", "close");
+  res.send(updates);
+});
+
+/**
  * Returns a JSON document describing the "latest" version.
  */
 app.get('/update.json', function(req, res, next) {
