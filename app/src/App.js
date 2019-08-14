@@ -12,9 +12,10 @@ function App() {
   const [apps, setApps] = useState([]);
   const codeRef = useRef(null);
 
-  function copyToClipboard(e) {
-    navigator.clipboard.writeText(codeRef.current.textContent);
-  };
+  const copyToClipboard = () => {
+    codeRef.current.select();
+    document.execCommand('copy');
+  }
 
   useEffect(() => {
     async function fetchData() {
@@ -66,9 +67,16 @@ function App() {
       <Container>
         <Row>
           <Col>
-            <span ref={codeRef}>
-              {app && `curl --output /tmp/${app}.tar "http://52.57.33.184:3000/update?app=${app}&os=linux&architecture=${arch}&format=tar" && mkdir -p /tmp/${app} && rm -rf /tmp/${app}/* && tar xf /tmp/${app}.tar -C /tmp/${app} && bash /tmp/${app}/install.sh`}
-            </span>
+            <Form className="code-form">
+              <Form.Control
+                ref={codeRef}
+                as="textarea"
+                rows="3"
+                className="code"
+                value={app && `curl --output /tmp/${app}.tar "http://52.57.33.184:3000/update?app=${app}&os=linux&architecture=${arch}&format=tar" && mkdir -p /tmp/${app} && rm -rf /tmp/${app}/* && tar xf /tmp/${app}.tar -C /tmp/${app} && bash /tmp/${app}/install.sh`}
+
+              />
+            </Form>
           </Col>
         </Row>
       </Container>

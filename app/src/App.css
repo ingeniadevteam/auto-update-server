@@ -1,4 +1,7 @@
-span {
+.code-form {
+  padding: 1.5rem 1.5rem;
+}
+.code {
   padding: 1.5rem 1.5rem;
   font-size: 1.5rem;
 }
